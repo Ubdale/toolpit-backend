@@ -1,0 +1,28 @@
+# Render Blueprint for the Toolpit API.
+# Render -> New -> Blueprint -> pick this repository. Values marked sync: false
+# are asked for once in the dashboard and never stored in the repository.
+services:
+  - type: web
+    name: toolpit-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false
+      - key: WEB_ORIGIN
+        value: https://toolpit.app
+      - key: ALLOWED_ORIGINS
+        value: https://toolpit.app,https://www.toolpit.app,http://localhost:3000
+      - key: REVENUECAT_WEBHOOK_SECRET
+        generateValue: true
+      - key: REVENUECAT_ACCEPT_SANDBOX
+        value: "true"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: Toolpit <no-reply@toolpit.app>
