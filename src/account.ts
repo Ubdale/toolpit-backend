@@ -74,7 +74,8 @@ export async function signUp(request: Request): Promise<Response> {
   const email = String(body.email ?? '').trim();
   const password = String(body.password ?? '');
 
-  if (name.length < 2) throw new AccountError('Enter your name.', 400);
+  // The name is optional: it only greets the person on their account page,
+  // and every required field costs sign-ups.
   if (!EMAIL.test(email) || email.length > 254) throw new AccountError('Enter a valid email address.', 400);
   if (password.length < 8) throw new AccountError('Use a password of at least 8 characters.', 400);
   if (password.length > 200) throw new AccountError('That password is too long.', 400);

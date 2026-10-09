@@ -40,8 +40,8 @@ try {
   console.log('\nsign up');
   const weak = await call(null, req('/api/auth/signup', { body: { name: 'E2E', email, password: 'short' } }));
   check('a short password is refused', weak.status === 400, JSON.stringify(weak.body));
-  const noName = await call(null, req('/api/auth/signup', { body: { name: '', email, password } }));
-  check('a missing name is refused', noName.status === 400, JSON.stringify(noName.body));
+  const noName = await call(null, req('/api/auth/signup', { body: { name: '', email: `noname-${email}`, password } }));
+  check('a name is optional', noName.status === 201 && noName.body.account?.name === '', JSON.stringify(noName.body));
 
   const up = await call(null, req('/api/auth/signup', { body: { name: 'E2E Tester', email, password } }));
   check('sign-up succeeds and signs straight in', up.status === 201 && typeof up.body.token === 'string', JSON.stringify(up.body));
@@ -111,11 +111,13 @@ try {
   check('and can no longer sign in', gone.status === 401);
 } finally {
   // Leave nothing behind, whatever happened above.
-  await db().query('delete from users where email = $1', [email]);
+  await db().query('delete from users where email in ($1, $2)', [email, `noname-${email}`]);
   await db().query('delete from auth_failures where email_lower like $1', ['%@toolpit-test.invalid']);
   await db().query(
-    `delete from bonus_claims where email_hash = encode(sha256(convert_to(normalised_email($1), 'utf8')), 'hex')`,
-    [email],
+    `delete from bonus_claims where email_hash in (
+       encode(sha256(convert_to(normalised_email($1), 'utf8')), 'hex'),
+       encode(sha256(convert_to(normalised_email($2), 'utf8')), 'hex'))`,
+    [email, `noname-${email}`],
   );
   await db().end();
 }
