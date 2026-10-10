@@ -41,7 +41,9 @@ for (const name of readdirSync('db/migrations').filter((f) => f.endsWith('.sql')
 }
 
 const one = async (sql, params) => (await db.query(sql, params)).rows[0];
-const user = (await one(`insert into users (email, name, password_hash) values ('p@example.com', 'P', 'x') returning id`)).id;
+const user = (await one(`insert into users (email, name, password_hash, email_status, email_verified_at) values ('p@example.com', 'P', 'x', 'verified', now()) returning id`)).id;
+// A confirmed account's bonus, as activate_registration grants it.
+await one('select grant_signup_bonus($1)', [user]);
 const wallet = (await one('select id from wallets where user_id = $1', [user])).id;
 
 /**
@@ -228,7 +230,8 @@ console.log('\na refund after the tokens are spent empties rather than fails');
 console.log('\napp store purchases, via RevenueCat');
 {
   const SECRET = 'rc-test-secret-0123456789abcdef';
-  const buyer = (await one(`insert into users (email, name, password_hash) values ('store@example.com', 'S', 'x') returning id`)).id;
+  const buyer = (await one(`insert into users (email, name, password_hash, email_status, email_verified_at) values ('store@example.com', 'S', 'x', 'verified', now()) returning id`)).id;
+  await one('select grant_signup_bonus($1)', [buyer]);
   const rcEvent = (event) => JSON.stringify({ api_version: '1.0', event });
   const deliver = async (body, authorization = SECRET, options = {}) => {
     const event = parseRevenueCatWebhook({ body, headers: { Authorization: authorization } }, SECRET);

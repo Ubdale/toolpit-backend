@@ -13,22 +13,25 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "db:migrate": "node --env-file=.env scripts/db-migrate.mjs",
-    "test": "npm run test:ledger && npm run test:payments && npm run test:auth",
+    "test": "npm run test:ledger && npm run test:payments && npm run test:auth && npm run test:verification",
     "test:ledger": "node scripts/tokens-qc.mjs",
     "test:payments": "tsx scripts/payments-qc.mjs",
     "test:auth": "tsx scripts/auth-qc.mjs",
-    "test:api": "tsx --env-file=.env scripts/api-e2e.mjs"
+    "test:api": "tsx --env-file=.env scripts/api-e2e.mjs",
+    "test:verification": "tsx scripts/verification-qc.mjs"
   },
   "dependencies": {
     "@hono/node-server": "1.19.17",
     "hono": "4.6.14",
     "pg": "8.13.1",
-    "tsx": "4.19.2"
+    "tsx": "4.19.2",
+    "validator": "13.15.35"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.2.15",
     "@types/node": "22.10.2",
     "@types/pg": "8.11.10",
+    "@types/validator": "13.15.10",
     "typescript": "5.7.2"
   }
 }

@@ -13,7 +13,7 @@ import { db, one } from './db';
 export const SESSION_COOKIE = 'tp_session';
 const SESSION_DAYS = 90;
 
-export type SessionUser = { id: string; email: string; name: string };
+export type SessionUser = { id: string; email: string; name: string; email_status: string };
 
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -41,7 +41,7 @@ export async function userFromRequest(request: Request): Promise<SessionUser | n
   const token = tokenFrom(request);
   if (!token || token.length > 200) return null;
   return one<SessionUser>(
-    `select u.id, u.email, u.name from sessions s join users u on u.id = s.user_id
+    `select u.id, u.email, u.name, u.email_status from sessions s join users u on u.id = s.user_id
      where s.token_hash = $1 and s.expires_at > now()`,
     [hashToken(token)],
   );

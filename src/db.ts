@@ -10,15 +10,28 @@ import pg from 'pg';
  * One small pool per server instance: Vercel runs many short-lived instances,
  * and Neon's pooler (the "-pooler" host) multiplexes them onto a few real
  * connections, so each instance holding more than a handful would only queue.
+ *
+ * Every multi-step write is one plpgsql function call, so nothing here needs
+ * a checked-out client or an explicit transaction - which is also what lets
+ * the tests swap in PGlite (`useDatabase`) and run the real app end to end.
  */
 
-let pool: pg.Pool | null = null;
+export type Queryable = {
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }>;
+};
 
-export function databaseConfigured(): boolean {
-  return Boolean(process.env.DATABASE_URL);
+let pool: Queryable | null = null;
+
+/** Tests only: run the app against another Postgres (PGlite). */
+export function useDatabase(database: Queryable): void {
+  pool = database;
 }
 
-export function db(): pg.Pool {
+export function databaseConfigured(): boolean {
+  return pool !== null || Boolean(process.env.DATABASE_URL);
+}
+
+export function db(): Queryable {
   if (pool) return pool;
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is not set.');

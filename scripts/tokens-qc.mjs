@@ -45,8 +45,20 @@ console.log('\nthe migrations apply to a real Postgres');
 check('schema, functions and trigger all execute', true);
 
 const one = async (sql, params) => (await db.query(sql, params)).rows[0];
-const signUp = async (email) =>
-  (await one(`insert into users (email, name, password_hash) values ($1, 'Test', 'x') returning id`, [email])).id;
+/**
+ * What confirming an email does (activate_registration, 0002): a verified
+ * user, then the bonus. The bonus is no longer part of inserting a user.
+ */
+const signUp = async (email) => {
+  const id = (
+    await one(
+      `insert into users (email, name, password_hash, email_status, email_verified_at) values ($1, 'Test', 'x', 'verified', now()) returning id`,
+      [email],
+    )
+  ).id;
+  await one('select grant_signup_bonus($1)', [id]);
+  return id;
+};
 const balanceOf = async (user) => Number((await one('select balance from wallets where user_id = $1', [user])).balance);
 const walletOf = async (user) => (await one('select id from wallets where user_id = $1', [user])).id;
 

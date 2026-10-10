@@ -1,5 +1,7 @@
 import { db, databaseConfigured, one } from './db';
-import { DECOY_HASH, hashPassword, verifyPassword } from './password';
+import { emailKey } from './email';
+import { DECOY_HASH, verifyPassword } from './password';
+import { pendingSignIn, startSignUp } from './registration';
 import { createSession, sessionCookie, userFromRequest, type SessionUser } from './session';
 
 /**
@@ -7,17 +9,27 @@ import { createSession, sessionCookie, userFromRequest, type SessionUser } from 
  * route files so each route is a few lines of HTTP around one call here.
  */
 
-export type AccountSummary = { id: string; email: string; name: string; balance: number; cost: number };
+export type AccountSummary = {
+  id: string;
+  email: string;
+  name: string;
+  balance: number;
+  cost: number;
+  emailVerified: boolean;
+  emailStatus: 'legacy' | 'verified';
+};
 
 export class AccountError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  /** More of the response body: a machine-readable code, a pending sign-up, a retry delay. */
+  readonly extra: Record<string, unknown>;
+  constructor(message: string, status: number, extra: Record<string, unknown> = {}) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
 }
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_FAILURES = 10;
 
 export function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -30,7 +42,10 @@ export async function handle(run: () => Promise<Response>): Promise<Response> {
   try {
     return await run();
   } catch (error) {
-    if (error instanceof AccountError) return json({ error: error.message }, error.status);
+    if (error instanceof AccountError) {
+      const retry = typeof error.extra.retryAfter === 'number' ? { 'retry-after': String(error.extra.retryAfter) } : undefined;
+      return json({ error: error.message, ...error.extra }, error.status, retry);
+    }
     console.error('[account]', error);
     return json({ error: 'Something went wrong on our side. Try again in a moment.' }, 500);
   }
@@ -48,72 +63,74 @@ export async function readBody(request: Request): Promise<Record<string, unknown
 export async function requireUser(request: Request): Promise<SessionUser> {
   const user = await userFromRequest(request);
   if (!user) throw new AccountError('Sign in first.', 401);
+  // Only real accounts have sessions: one that existed before verification
+  // ('legacy') or one whose email was confirmed. Checked here as well as by
+  // the schema, so a future account state cannot reach tokens by accident.
+  if (user.email_status !== 'legacy' && user.email_status !== 'verified') {
+    throw new AccountError('Confirm your email to use this account.', 403, { code: 'email_unverified' });
+  }
   return user;
 }
 
 export async function summary(userId: string): Promise<AccountSummary> {
-  const row = await one<{ email: string; name: string; balance: string }>(
-    'select u.email, u.name, w.balance from users u join wallets w on w.user_id = u.id where u.id = $1',
+  const row = await one<{ email: string; name: string; balance: string; email_status: 'legacy' | 'verified' }>(
+    'select u.email, u.name, u.email_status, w.balance from users u join wallets w on w.user_id = u.id where u.id = $1',
     [userId],
   );
   if (!row) throw new AccountError('This account no longer exists.', 401);
   const cost = await one<{ c: number }>('select tokens_per_file() as c');
-  return { id: userId, email: row.email, name: row.name, balance: Number(row.balance), cost: Number(cost!.c) };
+  return {
+    id: userId,
+    email: row.email,
+    name: row.name,
+    balance: Number(row.balance),
+    cost: Number(cost!.c),
+    // Explicit, so no client has to infer it: every account the API returns
+    // is a usable one, and these two say which kind.
+    emailVerified: row.email_status === 'verified',
+    emailStatus: row.email_status,
+  };
 }
 
-/** The response every successful sign-in or sign-up returns: token for the app, cookie for the site. */
-async function signedIn(userId: string, request: Request, status = 200): Promise<Response> {
+/** The response every successful sign-in returns: token for the app, cookie for the site. */
+export async function signedIn(userId: string, request: Request, status = 200, extra: Record<string, unknown> = {}): Promise<Response> {
   const token = await createSession(userId, request.headers.get('user-agent'));
   const account = await summary(userId);
-  return json({ token, account }, status, { 'set-cookie': sessionCookie(token, request) });
+  return json({ token, account, ...extra }, status, { 'set-cookie': sessionCookie(token, request) });
 }
 
-export async function signUp(request: Request): Promise<Response> {
-  const body = await readBody(request);
-  const name = String(body.name ?? '').trim().slice(0, 80);
-  const email = String(body.email ?? '').trim();
-  const password = String(body.password ?? '');
-
-  // The name is optional: it only greets the person on their account page,
-  // and every required field costs sign-ups.
-  if (!EMAIL.test(email) || email.length > 254) throw new AccountError('Enter a valid email address.', 400);
-  if (password.length < 8) throw new AccountError('Use a password of at least 8 characters.', 400);
-  if (password.length > 200) throw new AccountError('That password is too long.', 400);
-
-  const hash = await hashPassword(password);
-  try {
-    // The insert trigger creates the wallet and grants the sign-up bonus.
-    const user = await one<{ id: string }>(
-      'insert into users (email, name, password_hash) values ($1, $2, $3) returning id',
-      [email, name, hash],
-    );
-    return signedIn(user!.id, request, 201);
-  } catch (error) {
-    if ((error as { code?: string }).code === '23505') {
-      throw new AccountError('There is already an account with that email. Sign in instead.', 409);
-    }
-    throw error;
-  }
+/** Sign-up starts a registration that waits for its email link (registration.ts). */
+export function signUp(request: Request): Promise<Response> {
+  return startSignUp(request);
 }
 
 export async function signIn(request: Request): Promise<Response> {
   const body = await readBody(request);
-  const email = String(body.email ?? '').trim();
-  const password = String(body.password ?? '');
-  const key = email.toLowerCase();
+  if (typeof body.email !== 'string' || typeof body.password !== 'string' || body.email.length > 320 || body.password.length > 200) {
+    throw new AccountError('That email and password do not match an account.', 401);
+  }
+  const password = body.password;
+  const key = emailKey(body.email);
 
   const failures = await one<{ n: number }>(
     `select count(*)::int as n from auth_failures where email_lower = $1 and at > now() - interval '15 minutes'`,
     [key],
   );
   if ((failures?.n ?? 0) >= MAX_FAILURES) {
-    throw new AccountError('Too many attempts for this email. Wait 15 minutes and try again.', 429);
+    throw new AccountError('Too many attempts for this email. Wait 15 minutes and try again.', 429, { retryAfter: 900 });
   }
 
   const user = await one<{ id: string; password_hash: string }>(
     'select id, password_hash from users where lower(email) = $1',
     [key],
   );
+  if (!user) {
+    // Not an account yet - perhaps a sign-up still waiting for its email. With
+    // the right password, say so and let them resend; otherwise the same
+    // answer as any wrong password.
+    const pending = await pendingSignIn(key, password);
+    if (pending) throw pending;
+  }
   // Always verify something, so an unknown email takes as long as a wrong password.
   const ok = await verifyPassword(password, user?.password_hash ?? DECOY_HASH);
   if (!user || !ok) {

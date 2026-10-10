@@ -8,8 +8,28 @@
  *
  *   npm run test:api
  */
-import { app } from '../src/app.ts';
-import { db } from '../src/db.ts';
+// It writes to whatever DATABASE_URL names. Say so explicitly, so it is never
+// run by accident against the database the live API uses.
+if (process.env.API_E2E_ALLOW !== '1') {
+  console.error('api-e2e writes to DATABASE_URL. Set API_E2E_ALLOW=1 to run it against a database you intend to use for testing.');
+  process.exit(2);
+}
+// Confirmation emails are captured in memory, never sent.
+process.env.MAIL_TRANSPORT = 'capture';
+process.env.WEB_ORIGIN = 'http://localhost:3000';
+
+const { app } = await import('../src/app.ts');
+const { db } = await import('../src/db.ts');
+const { captured } = await import('../src/mail.ts');
+
+/** Sign up, then confirm the captured link, as a person would. */
+async function signUpAndConfirm(name, email, password) {
+  const started = await call(null, req('/api/auth/signup', { body: { name, email, password, verification: 'link' } }));
+  if (started.status !== 202) return started;
+  const mail = [...captured].reverse().find((m) => m.to.toLowerCase() === email.toLowerCase());
+  const token = /#t=([w-]+)/.exec(mail?.text ?? '')?.[1];
+  return call(null, req('/api/auth/verify', { body: { token, password } }));
+}
 
 let problems = 0;
 const check = (name, ok, detail) => {
@@ -40,11 +60,13 @@ try {
   console.log('\nsign up');
   const weak = await call(null, req('/api/auth/signup', { body: { name: 'E2E', email, password: 'short' } }));
   check('a short password is refused', weak.status === 400, JSON.stringify(weak.body));
-  const noName = await call(null, req('/api/auth/signup', { body: { name: '', email: `noname-${email}`, password } }));
-  check('a name is optional', noName.status === 201 && noName.body.account?.name === '', JSON.stringify(noName.body));
+  const noName = await signUpAndConfirm('', `noname-${email}`, password);
+  check('a name is optional', noName.status === 200 && noName.body.account?.name === '', JSON.stringify(noName.body));
 
-  const up = await call(null, req('/api/auth/signup', { body: { name: 'E2E Tester', email, password } }));
-  check('sign-up succeeds and signs straight in', up.status === 201 && typeof up.body.token === 'string', JSON.stringify(up.body));
+  const pending = await call(null, req('/api/auth/signup', { body: { name: 'E2E Tester', email, password, verification: 'link' } }));
+  check('sign-up waits for the email: no token yet', pending.status === 202 && !pending.body.token, JSON.stringify(pending.body));
+  const up = await signUpAndConfirm('E2E Tester', email, password);
+  check('confirming the link signs in', up.status === 200 && typeof up.body.token === 'string', JSON.stringify(up.body));
   check('with 50 tokens', up.body.account?.balance === 50, JSON.stringify(up.body.account));
   check('and sets an httpOnly session cookie for the website', /tp_session=.+HttpOnly/i.test(up.cookie ?? ''), up.cookie);
   const token = up.body.token;
@@ -112,6 +134,8 @@ try {
 } finally {
   // Leave nothing behind, whatever happened above.
   await db().query('delete from users where email in ($1, $2)', [email, `noname-${email}`]);
+  await db().query('delete from pending_registrations where email_key in (lower($1), lower($2))', [email, `noname-${email}`]);
+  await db().query('delete from email_verifications where email_key in (lower($1), lower($2))', [email, `noname-${email}`]);
   await db().query('delete from auth_failures where email_lower like $1', ['%@toolpit-test.invalid']);
   await db().query(
     `delete from bonus_claims where email_hash in (
