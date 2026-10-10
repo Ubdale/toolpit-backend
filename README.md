@@ -15,6 +15,7 @@ npm install
 cp .env.example .env        # then fill DATABASE_URL
 npm run db:migrate          # creates the tables (safe to run again)
 npm run dev                 # http://localhost:8787
+npm run dev:local           # the same, with nothing external: PGlite + mail captured to .mail/
 ```
 
 The website talks to it when its `.env.local` has

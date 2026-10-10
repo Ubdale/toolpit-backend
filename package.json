@@ -18,7 +18,8 @@
     "test:payments": "tsx scripts/payments-qc.mjs",
     "test:auth": "tsx scripts/auth-qc.mjs",
     "test:api": "tsx --env-file=.env scripts/api-e2e.mjs",
-    "test:verification": "tsx scripts/verification-qc.mjs"
+    "test:verification": "tsx scripts/verification-qc.mjs",
+    "dev:local": "tsx scripts/dev-local.mjs"
   },
   "dependencies": {
     "@hono/node-server": "1.19.17",
