@@ -248,6 +248,7 @@ export async function changeEmail(request: Request): Promise<Response> {
   const reg = await byHandle(body.handle);
   await limit('signup-source', source(request), PER_SOURCE_PER_HOUR, 'Too many emails requested from this connection. Try again later.');
   await limit('signup-address', email.key, PER_ADDRESS_PER_HOUR, 'Too many confirmation emails for this address. Try again later.');
+  await requireReceivableEmail(email.email);
 
   const token = secret();
   const code = reg.code_mode ? String(randomInt(0, 1000000)).padStart(6, '0') : undefined;

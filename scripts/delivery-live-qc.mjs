@@ -26,6 +26,13 @@ for (const [kind, expected] of [['bounced', 'bounced'], ['delivered', 'delivered
   assert.equal(started.body.pending.method, 'code');
   assert.equal(started.body.token, undefined);
   console.log(`PASS: ${kind} test email pending without an account/session.`);
+  const badChange = await call('/api/auth/signup/change-email', {
+    handle: started.body.pending.handle,
+    email: `changed@missing-change-domain-${suffix}.invalid`,
+  });
+  assert.equal(badChange.status, 400, JSON.stringify(badChange.body));
+  assert.equal(badChange.body.code, 'invalid_email');
+  console.log('PASS: changing email rejects nonexistent domains without replacing the pending address.');
   let result;
   for (let attempt = 0; attempt < 45; attempt++) {
     result = await call('/api/auth/signup/delivery', { handle: started.body.pending.handle });
