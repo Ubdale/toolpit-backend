@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { domainCanReceive, probeMailbox } from '../src/mailbox.ts';
+import { domainCanReceive } from '../src/mailbox.ts';
 
 const failure = (code) => async () => { throw Object.assign(new Error('DNS failure'), { code }); };
 const dns = (mx, a = [], aaaa = []) => ({
@@ -17,13 +17,4 @@ assert.equal(await domainCanReceive('empty.test', dns('ENODATA', 'ENODATA', 'ENO
 assert.equal(await domainCanReceive('outage.test', dns('ETIMEOUT')), 'unknown');
 assert.equal(await domainCanReceive('outage.test', dns('ENODATA', 'ETIMEOUT', 'ENODATA')), 'unknown');
 
-const email = 'user@gmail.com';
-for (const state of ['deliverable', 'undeliverable', 'risky', 'unknown']) {
-  const result = await probeMailbox(email, 'test-key', async () => Response.json({ email, state }));
-  assert.equal(result, ['deliverable', 'undeliverable'].includes(state) ? state : 'unknown');
-}
-assert.equal(await probeMailbox(email, 'test-key', async () => Response.json({ email: 'someone-else@gmail.com', state: 'undeliverable' })), 'unknown');
-assert.equal(await probeMailbox(email, 'test-key', async () => new Response('', { status: 429 })), 'unknown');
-assert.equal(await probeMailbox(email, 'test-key', async () => { throw new Error('timeout'); }), 'unknown');
-assert.equal(await probeMailbox(email, '', async () => { throw new Error('must not contact provider'); }), 'unknown');
-console.log('PASS: DNS, null MX, SMTP fallback, verifier results, outages and unavailable provider checks.');
+console.log('PASS: DNS, null MX, SMTP fallback and temporary outage checks.');

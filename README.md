@@ -76,9 +76,9 @@ site share the `toolpit.app` domain, so it is first-party); the app sends
 
 Sign-up, resend and email changes check whether the destination domain accepts
 mail (MX or SMTP A/AAAA fallback). Missing domains and Null MX are rejected;
-DNS outages remain unknown. Optional `EMAILABLE_API_KEY` enables mailbox-level
-checks before sending: only an explicit undeliverable result blocks signup.
-Unknown/risky results still require the inbox code.
+DNS outages remain unknown. No third-party mailbox-verification subscription
+is required. Missing Gmail usernames are detected through Resend bounce reports
+when the receiving server rejects the message; inbox ownership still requires OTP.
 
 Configure a Resend webhook at `https://api.toolpit.app/api/webhooks/resend`
 for `email.delivered`, `email.delivery_delayed`, `email.bounced`,
