@@ -155,6 +155,16 @@ section('valid addresses the same rules accept');
   }
 }
 
+section('sign-in validates addresses and refuses unknown inboxes');
+{
+  for (const email of ['not-an-email', 'a@example.com,b@example.com', 'a b@example.com']) {
+    const r = await call('/api/auth/login', { body: { email, password: 'correct horse battery' } });
+    check(`invalid login address refused: ${email}`, r.status === 400 && r.body.code === 'invalid_email' && !r.body.token && !r.cookie);
+  }
+  const r = await call('/api/auth/login', { body: { email: 'never-registered@toolpit-test.dev', password: 'correct horse battery' } });
+  check('unknown address cannot sign in', r.status === 401 && !r.body.token && !r.cookie);
+}
+
 section('an invented address stays pending: no account, no tokens, no session');
 {
   const email = 'invented-person-8133@toolpit-test.dev';

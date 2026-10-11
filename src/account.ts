@@ -1,5 +1,5 @@
 import { db, databaseConfigured, one } from './db';
-import { emailKey } from './email';
+import { checkEmail } from './email';
 import { DECOY_HASH, verifyPassword } from './password';
 import { pendingSignIn, startSignUp } from './registration';
 import { createSession, sessionCookie, userFromRequest, type SessionUser } from './session';
@@ -109,8 +109,10 @@ export async function signIn(request: Request): Promise<Response> {
   if (typeof body.email !== 'string' || typeof body.password !== 'string' || body.email.length > 320 || body.password.length > 200) {
     throw new AccountError('That email and password do not match an account.', 401);
   }
+  const email = checkEmail(body.email);
+  if (!email.ok) throw new AccountError(email.error, 400, { code: 'invalid_email' });
   const password = body.password;
-  const key = emailKey(body.email);
+  const key = email.key;
 
   const failures = await one<{ n: number }>(
     `select count(*)::int as n from auth_failures where email_lower = $1 and at > now() - interval '15 minutes'`,
