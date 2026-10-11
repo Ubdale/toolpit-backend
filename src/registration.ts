@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 
 import { AccountError, json, readBody, signedIn } from './account';
 import { webOrigin } from './config';
@@ -34,6 +34,7 @@ import { hashToken } from './session';
  */
 
 export const LINK_MINUTES = 30;
+const CODE_MINUTES = 10;
 export const HOLD_HOURS = 24;
 const RESEND_COOLDOWN_SECONDS = 60;
 /** Emails per address per hour (sign-up, resend and change of address together). */
@@ -52,6 +53,7 @@ export type PendingView = {
   delivery: 'sent' | 'failed' | 'earlier';
   resendAfter: number;
   linkMinutes: number;
+  method: 'link' | 'code';
   expiresAt: string;
 };
 
@@ -89,12 +91,17 @@ function link(token: string): string {
   return `${webOrigin()}/account/confirm#t=${token}`;
 }
 
-async function deliver(email: string, token: string): Promise<'sent' | 'failed'> {
+async function deliver(email: string, token: string, code?: string): Promise<'sent' | 'failed'> {
   try {
     await sendMail({
       to: email,
       subject: 'Confirm your email for Toolpit',
-      text: [
+      text: code ? [
+        'Your Toolpit verification code is:', code, '',
+        `Enter this six-digit code on the sign-up screen within ${CODE_MINUTES} minutes.`,
+        'Do not share this code. If you did not request it, ignore this email.',
+        'Your account and 50-token bonus are activated only after verification.',
+      ].join('\n') : [
         'Someone - hopefully you - started creating a Toolpit account with this email address.',
         '',
         `To finish, open this link within ${LINK_MINUTES} minutes and enter the password you chose:`,
@@ -128,13 +135,14 @@ function checkPassword(value: unknown): string {
   return value;
 }
 
-function view(email: string, handle: string, delivery: PendingView['delivery'], lastSent: Date, expires: Date): PendingView {
+function view(email: string, handle: string, delivery: PendingView['delivery'], lastSent: Date, expires: Date, method: 'link' | 'code' = 'link'): PendingView {
   return {
     email,
     handle,
     delivery,
     resendAfter: Math.max(0, Math.ceil((lastSent.getTime() + RESEND_COOLDOWN_SECONDS * 1000 - Date.now()) / 1000)),
-    linkMinutes: LINK_MINUTES,
+    linkMinutes: method === 'code' ? CODE_MINUTES : LINK_MINUTES,
+    method,
     expiresAt: expires.toISOString(),
   };
 }
@@ -145,12 +153,13 @@ type Registration = {
   password_hash: string;
   last_sent_at: string | null;
   expires_at: string;
+  code_mode: boolean;
 };
 
 async function byHandle(handle: unknown): Promise<Registration> {
   if (typeof handle !== 'string' || handle.length > 100) throw new AccountError('This sign-up has ended. Start again.', 410, { code: 'registration_gone' });
   const reg = await one<Registration>(
-    'select id, email, password_hash, last_sent_at, expires_at from pending_registrations where handle_hash = $1 and expires_at > now()',
+    `select id, email, password_hash, last_sent_at, expires_at, exists (select 1 from email_verifications v where v.registration_id = pending_registrations.id and v.state = 'active' and v.code_hash is not null) as code_mode from pending_registrations where handle_hash = $1 and expires_at > now()`,
     [hashToken(handle)],
   );
   if (!reg) throw new AccountError('This sign-up has expired. Start again; it only takes a moment.', 410, { code: 'registration_gone' });
@@ -173,23 +182,24 @@ export async function startSignUp(request: Request): Promise<Response> {
 
   const handle = secret();
   const token = secret();
+  const code = body.verification === 'code' ? String(randomInt(0, 1000000)).padStart(6, '0') : undefined;
   const started = await one<{ r: { status: string } }>(
-    'select start_registration($1, $2, $3, $4, $5, $6, $7, $8) as r',
-    [email.email, email.key, name, await hashPassword(password), hashToken(handle), hashToken(token), LINK_MINUTES, HOLD_HOURS],
+    code ? 'select start_code_registration($1,$2,$3,$4,$5,$6,$7,$8,$9) as r' : 'select start_registration($1, $2, $3, $4, $5, $6, $7, $8) as r',
+    [email.email, email.key, name, await hashPassword(password), hashToken(handle), hashToken(token), code ? CODE_MINUTES : LINK_MINUTES, HOLD_HOURS, ...(code ? [await hashPassword(code)] : [])],
   );
   if (started!.r.status === 'exists') {
     throw new AccountError('There is already an account with that email. Sign in instead.', 409, { code: 'account_exists' });
   }
 
-  const delivery = await deliver(email.email, token);
+  const delivery = await deliver(email.email, token, code);
   const now = new Date();
-  const pending = view(email.email, handle, delivery, now, new Date(now.getTime() + HOLD_HOURS * 3600_000));
+  const pending = view(email.email, handle, delivery, now, new Date(now.getTime() + HOLD_HOURS * 3600_000), code ? 'code' : 'link');
 
   // Clients from before verification expect a signed-in account back. They get
   // an error they will display, which says exactly what to do, rather than a
   // response they would misread as success. The registration is real: the
   // link works, and they can sign in once it is confirmed.
-  if (body.verification !== 'link') {
+  if (body.verification !== 'link' && body.verification !== 'code') {
     throw new AccountError(
       delivery === 'sent'
         ? `Almost done: we sent a link to ${email.email}. Open it to confirm your email, then sign in here. (Updating the app shows these steps in the app.)`
@@ -214,14 +224,16 @@ export async function resend(request: Request): Promise<Response> {
   await limit('signup-address', reg.email.toLowerCase(), PER_ADDRESS_PER_HOUR, 'Too many confirmation emails for this address. Try again later.');
 
   const token = secret();
-  const issued = await one<{ r: { status: string } }>('select reissue_verification($1, null, null, $2, $3) as r', [
+  const code = reg.code_mode ? String(randomInt(0, 1000000)).padStart(6, '0') : undefined;
+  const issued = await one<{ r: { status: string } }>(code ? 'select reissue_code_verification($1,null,null,$2,$3,$4) as r' : 'select reissue_verification($1, null, null, $2, $3) as r', [
     reg.id,
     hashToken(token),
-    LINK_MINUTES,
+    code ? CODE_MINUTES : LINK_MINUTES,
+    ...(code ? [await hashPassword(code)] : []),
   ]);
   if (issued!.r.status !== 'issued') throw new AccountError('This sign-up has expired. Start again.', 410, { code: 'registration_gone' });
-  const delivery = await deliver(reg.email, token);
-  return json({ pending: view(reg.email, body.handle as string, delivery, new Date(), new Date(reg.expires_at)) });
+  const delivery = await deliver(reg.email, token, code);
+  return json({ pending: view(reg.email, body.handle as string, delivery, new Date(), new Date(reg.expires_at), reg.code_mode ? 'code' : 'link') });
 }
 
 export async function changeEmail(request: Request): Promise<Response> {
@@ -234,19 +246,21 @@ export async function changeEmail(request: Request): Promise<Response> {
   await limit('signup-address', email.key, PER_ADDRESS_PER_HOUR, 'Too many confirmation emails for this address. Try again later.');
 
   const token = secret();
-  const issued = await one<{ r: { status: string } }>('select reissue_verification($1, $2, $3, $4, $5) as r', [
+  const code = reg.code_mode ? String(randomInt(0, 1000000)).padStart(6, '0') : undefined;
+  const issued = await one<{ r: { status: string } }>(code ? 'select reissue_code_verification($1,$2,$3,$4,$5,$6) as r' : 'select reissue_verification($1, $2, $3, $4, $5) as r', [
     reg.id,
     email.email,
     email.key,
     hashToken(token),
-    LINK_MINUTES,
+    code ? CODE_MINUTES : LINK_MINUTES,
+    ...(code ? [await hashPassword(code)] : []),
   ]);
   if (issued!.r.status === 'exists') {
     throw new AccountError('There is already an account with that email. Sign in instead.', 409, { code: 'account_exists' });
   }
   if (issued!.r.status !== 'issued') throw new AccountError('This sign-up has expired. Start again.', 410, { code: 'registration_gone' });
-  const delivery = await deliver(email.email, token);
-  return json({ pending: view(email.email, body.handle as string, delivery, new Date(), new Date(reg.expires_at)) });
+  const delivery = await deliver(email.email, token, code);
+  return json({ pending: view(email.email, body.handle as string, delivery, new Date(), new Date(reg.expires_at), reg.code_mode ? 'code' : 'link') });
 }
 
 // ------------------------------------------------------------------ links
@@ -344,18 +358,38 @@ export async function cancelLink(request: Request): Promise<Response> {
  */
 export async function pendingSignIn(key: string, password: string): Promise<AccountError | null> {
   const reg = await one<Registration>(
-    'select id, email, password_hash, last_sent_at, expires_at from pending_registrations where email_key = $1 and expires_at > now()',
+    `select id, email, password_hash, last_sent_at, expires_at, exists (select 1 from email_verifications v where v.registration_id = pending_registrations.id and v.state = 'active' and v.code_hash is not null) as code_mode from pending_registrations where email_key = $1 and expires_at > now()`,
     [key],
   );
   if (!reg || !(await verifyPassword(password, reg.password_hash))) return null;
   const handle = secret();
   await db().query('update pending_registrations set handle_hash = $1 where id = $2', [hashToken(handle), reg.id]);
   return new AccountError(
-    `Confirm your email to finish creating your account. We sent a link to ${reg.email}.`,
+    `Confirm your email to finish creating your account. We sent a ${reg.code_mode ? 'code' : 'link'} to ${reg.email}.`,
     403,
     {
       code: 'email_unverified',
-      pending: view(reg.email, handle, 'earlier', reg.last_sent_at ? new Date(reg.last_sent_at) : new Date(0), new Date(reg.expires_at)),
+      pending: view(reg.email, handle, 'earlier', reg.last_sent_at ? new Date(reg.last_sent_at) : new Date(0), new Date(reg.expires_at), reg.code_mode ? 'code' : 'link'),
     },
   );
+}
+
+/** The handle binds the inbox code to the browser that chose the password. */
+export async function confirmCode(request: Request): Promise<Response> {
+  const body = await readBody(request);
+  if (typeof body.handle !== 'string' || body.handle.length > 100 || typeof body.code !== 'string' || !/^\d{6}$/.test(body.code)) {
+    throw new AccountError('Enter the six-digit code from your email.', 400, { code: 'invalid_code' });
+  }
+  const found = (await one<{ r: { status: string; token_hash?: string; code_hash?: string } }>(
+    'select claim_code_attempt($1) as r', [hashToken(body.handle)],
+  ))!.r;
+  if (found.status === 'gone') throw new AccountError('This sign-up has ended. Start again or sign in.', 410, { code: 'registration_gone' });
+  if (found.status === 'locked') throw new AccountError('Too many incorrect attempts. Request a new code.', 429, { code: 'code_locked' });
+  if (found.status !== 'active') throw new AccountError('Your code has expired. Request a new code.', 410, { code: 'code_expired' });
+  if (!(await verifyPassword(body.code, found.code_hash!))) throw new AccountError('That code is incorrect. Use the latest code from your email.', 400, { code: 'invalid_code' });
+  const result = (await one<{ r: { status: string; user_id?: string; bonus?: boolean } }>(
+    'select activate_registration($1) as r', [found.token_hash],
+  ))!.r;
+  if (result.status !== 'activated') throw new AccountError('This code was replaced, expired, or already used. Request a new code or sign in.', 410, { code: 'code_expired' });
+  return signedIn(result.user_id!, request, 200, { bonusGranted: Boolean(result.bonus) });
 }

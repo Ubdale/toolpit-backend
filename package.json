@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "tsx watch --env-file=.env src/server.ts",
+    "prestart": "node scripts/db-migrate.mjs",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "db:migrate": "node --env-file=.env scripts/db-migrate.mjs",

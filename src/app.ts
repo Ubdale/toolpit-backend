@@ -15,7 +15,7 @@ import {
 } from './account';
 import { allowedOrigins, webOrigin } from './config';
 import { checkout, revenueCatWebhook, sandboxComplete, webPaymentWebhook } from './payment-routes';
-import { cancelLink, changeEmail, confirmLink, inspectLink, resend } from './registration';
+import { cancelLink, changeEmail, confirmCode, confirmLink, inspectLink, resend } from './registration';
 import { completeReset, sendReset } from './reset';
 import { createSession, endSession, sessionCookie } from './session';
 
@@ -51,6 +51,7 @@ app.get('/health', (c) => c.json({ ok: true }));
 app.post('/api/auth/signup', (c) => handle(() => signUp(c.req.raw)));
 app.post('/api/auth/signup/resend', (c) => handle(() => resend(c.req.raw)));
 app.post('/api/auth/signup/change-email', (c) => handle(() => changeEmail(c.req.raw)));
+app.post('/api/auth/verify/code', (c) => handle(() => confirmCode(c.req.raw)));
 app.post('/api/auth/verify/inspect', (c) => handle(() => inspectLink(c.req.raw)));
 app.post('/api/auth/verify', (c) => handle(() => confirmLink(c.req.raw)));
 app.post('/api/auth/verify/cancel', (c) => handle(() => cancelLink(c.req.raw)));

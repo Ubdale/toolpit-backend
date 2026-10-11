@@ -437,5 +437,59 @@ section('the schema itself');
   check('no bonus on an unverified account', plain === 0);
 }
 
+
+section('six-digit inbox codes');
+const codeFor = (email) => [...captured].reverse().find(m => m.to === email)?.text.match(/^\d{6}$/m)?.[0];
+const codeSignup = (email) => signUp(email, 'correct horse battery', { verification: 'code' });
+const verifyCode = (handle, code) => call('/api/auth/verify/code', { body: { handle, code } });
+{
+  const email = 'code@toolpit-test.dev';
+  const started = await codeSignup(email);
+  const handle = started.body.pending.handle;
+  const code = codeFor(email);
+  check('code signup is pending with ten-minute expiry', started.status === 202 && started.body.pending.method === 'code' && started.body.pending.linkMinutes === 10);
+  check('mail contains six digits and no confirmation URL', /^\d{6}$/.test(code) && !captured.at(-1).text.includes('/account/confirm'));
+  check('code is not stored in plaintext', !(await pg.query('select code_hash from email_verifications where code_hash is not null')).rows.some(r => r.code_hash === code));
+  check('pending code account cannot sign in', (await users(email)) === 0);
+  check('malformed code rejected', (await verifyCode(handle, '123')).status === 400);
+  const wrong = code === '000000' ? '111111' : '000000';
+  check('wrong code rejected without creating account', (await verifyCode(handle, wrong)).status === 400 && (await users(email)) === 0);
+  check('code cannot be used with another browser handle', (await verifyCode('made-up-handle', code)).status === 410);
+  const confirmed = await verifyCode(handle, code);
+  check('correct code activates verified account with bonus and session', confirmed.status === 200 && confirmed.body.account.emailVerified && confirmed.body.account.balance === 50 && confirmed.cookie.includes('tp_session='));
+  check('used code cannot be replayed', (await verifyCode(handle, code)).status === 410 && (await bonusOf(email)) === 50);
+}
+{
+  const email = 'code-expiry@toolpit-test.dev';
+  const r = await codeSignup(email);
+  await pg.query("update email_verifications set expires_at = now() - interval '1 second' where email_key = $1", [email]);
+  check('expired code rejected', (await verifyCode(r.body.pending.handle, codeFor(email))).body.code === 'code_expired' && (await users(email)) === 0);
+}
+{
+  const email = 'code-resend@toolpit-test.dev';
+  const r = await codeSignup(email); const handle = r.body.pending.handle; const first = codeFor(email);
+  check('code resend obeys cooldown', (await call('/api/auth/signup/resend', { body: { handle } })).status === 429);
+  await pg.query("update pending_registrations set last_sent_at = now() - interval '2 minutes' where email_key = $1", [email]);
+  const resent = await call('/api/auth/signup/resend', { body: { handle } });
+  check('resend preserves code flow', resent.status === 200 && resent.body.pending.method === 'code');
+  const newest = codeFor(email);
+  if (newest !== first) check('old code is invalidated by resend', (await verifyCode(handle, first)).status === 400);
+  const moved = await call('/api/auth/signup/change-email', { body: { handle, email: 'code-moved@toolpit-test.dev' } });
+  check('changing address sends a code to the new address', moved.status === 200 && moved.body.pending.method === 'code' && !!codeFor('code-moved@toolpit-test.dev'));
+  check('new inbox code activates only the new address', (await verifyCode(handle, codeFor('code-moved@toolpit-test.dev'))).body.account?.email === 'code-moved@toolpit-test.dev' && (await users(email)) === 0);
+}
+{
+  const email = 'code-attempts@toolpit-test.dev'; const r = await codeSignup(email); const code = codeFor(email);
+  const wrong = code === '000000' ? '111111' : '000000';
+  const results = await Promise.all(Array.from({ length: 8 }, () => verifyCode(r.body.pending.handle, wrong)));
+  check('parallel guesses enforce five-attempt cap', results.filter(r => r.status === 400).length === 5 && results.filter(r => r.body.code === 'code_locked').length === 3);
+  check('correct code is blocked once attempts exhausted', (await verifyCode(r.body.pending.handle, code)).body.code === 'code_locked' && (await users(email)) === 0);
+}
+{
+  const email = 'code-race@toolpit-test.dev'; const r = await codeSignup(email); const code = codeFor(email);
+  const results = await Promise.all(Array.from({ length: 5 }, () => verifyCode(r.body.pending.handle, code)));
+  check('parallel correct codes create one account and one bonus', results.filter(r => r.status === 200).length === 1 && (await users(email)) === 1 && (await bonusOf(email)) === 50);
+}
+
 console.log(problems === 0 ? '\nverification-qc: all checks passed\n' : `\nverification-qc: ${problems} check(s) failed\n`);
 process.exit(problems === 0 ? 0 : 1);

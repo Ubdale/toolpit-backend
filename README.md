@@ -49,9 +49,10 @@ scripts/             migrate + tests
 
 | Method | Path | |
 |---|---|---|
-| POST | `/api/auth/signup` | `{name, email, password, verification: "link"}` → 202 `{pending}`; a confirmation email, **no account yet** |
-| POST | `/api/auth/signup/resend` | `{handle}` → a new link (60 s cooldown); the old link stops working |
-| POST | `/api/auth/signup/change-email` | `{handle, email}` → same sign-up, new address, new link |
+| POST | `/api/auth/signup` | `{name, email, password, verification: "code"}` → 202 `{pending}`; a confirmation email, **no account yet** |
+| POST | `/api/auth/signup/resend` | `{handle}` → a new code (60 s cooldown); the old code stops working |
+| POST | `/api/auth/signup/change-email` | `{handle, email}` → same sign-up, new address, new code |
+| POST | `/api/auth/verify/code` | `{handle, code}` → verified account, bonus and session |
 | POST | `/api/auth/verify/inspect` | `{token}` → what a link is; never uses it |
 | POST | `/api/auth/verify` | `{token, password}` → verified account, 50 tokens (once per inbox), signed in |
 | POST | `/api/auth/verify/cancel` | `{token}` → "this was not me": ends the sign-up |
@@ -72,6 +73,21 @@ site share the `toolpit.app` domain, so it is first-party); the app sends
 `Authorization: Bearer <token>`. Browsers may call only from `ALLOWED_ORIGINS`.
 
 ## Email verification
+
+The website requests `verification: "code"`. Resend emails a cryptographically
+random six-digit code, valid for 10 minutes. The user enters it on the pending
+sign-up screen; `POST /api/auth/verify/code` requires both that code and the
+random registration handle belonging to the browser that chose the password.
+Codes are stored using salted scrypt hashes. The database atomically limits
+each code to five attempts, including concurrent guesses. Resending or changing
+the address invalidates the previous code. A successful confirmation creates
+one verified account, grants the bonus once, consumes the challenge, and signs
+in. No account, wallet or session is created before confirmation.
+
+Deploy the backend first: its startup migration runner applies
+`0003_email_codes.sql`. Then deploy the website. Existing pending registrations
+and older mobile builds continue using the link flow described below.
+
 
 Sign-up does not create an account. It creates a **pending registration**
 (no wallet, no tokens, no session) and emails a link to
@@ -129,6 +145,20 @@ asks once for `DATABASE_URL` and `RESEND_API_KEY`. After the first deploy, add
 the custom domain `api.toolpit.app` (Settings → Custom Domains) and its CNAME in
 Cloudflare. Render's free plan sleeps after 15 minutes idle, so the first
 request after a quiet spell takes ~30-50 s; the Starter plan stays awake.
+
+`npm start` applies pending database migrations before starting the API. If a
+migration fails, the API does not start against an incompatible schema.
+Already applied migrations are skipped. `DATABASE_URL` must be available in
+the service environment.
+
+If an existing deployment logs `column u.email_status does not exist`, set
+its Render Start Command to `node scripts/db-migrate.mjs && npm start` and
+save to redeploy. This also works on the free plan, where Shell is unavailable.
+On a paid plan, you can instead run `node scripts/db-migrate.mjs` in the service
+Shell and restart the service. Migration `0002_email_verification.sql` adds the email verification
+columns and preserves existing accounts, sessions and balances. Do not add
+just the missing column manually: verification also needs the migration's
+tables and functions.
 
 **Vercel:** New Project → import this repository (Root Directory: the
 repository root here, or `backend` when deploying from the toolpit monorepo).
