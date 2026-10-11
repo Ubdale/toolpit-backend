@@ -1,3 +1,4 @@
+import { receiveMailEvent, registrationDelivery } from './mail-events';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 
@@ -49,6 +50,8 @@ app.get('/health', (c) => c.json({ ok: true }));
 
 // Sign-up creates a registration that waits for its email (registration.ts).
 app.post('/api/auth/signup', (c) => handle(() => signUp(c.req.raw)));
+app.post('/api/webhooks/resend', (c) => handle(() => receiveMailEvent(c.req.raw)));
+app.post('/api/auth/signup/delivery', (c) => handle(() => registrationDelivery(c.req.raw)));
 app.post('/api/auth/signup/resend', (c) => handle(() => resend(c.req.raw)));
 app.post('/api/auth/signup/change-email', (c) => handle(() => changeEmail(c.req.raw)));
 app.post('/api/auth/verify/code', (c) => handle(() => confirmCode(c.req.raw)));

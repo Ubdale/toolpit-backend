@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -24,7 +25,7 @@ export type Mail = { to: string; subject: string; text: string };
 export class MailError extends Error {}
 
 /** Every captured message, newest last. Tests read this. */
-export const captured: (Mail & { at: string })[] = [];
+export const captured: (Mail & { at: string; id: string })[] = [];
 
 export function mailTransport(): 'resend' | 'capture' | null {
   if (process.env.MAIL_TRANSPORT === 'capture') {
@@ -38,10 +39,10 @@ export function mailConfigured(): boolean {
 }
 
 /** Hands a message to the provider. Throws MailError when it was not accepted. */
-export async function sendMail(mail: Mail): Promise<void> {
+export async function sendMail(mail: Mail): Promise<string> {
   const transport = mailTransport();
   if (transport === 'capture') {
-    const entry = { ...mail, at: new Date().toISOString() };
+    const entry = { ...mail, id: randomUUID(), at: new Date().toISOString() };
     captured.push(entry);
     const dir = process.env.MAIL_CAPTURE_DIR ?? '.mail';
     try {
@@ -51,7 +52,7 @@ export async function sendMail(mail: Mail): Promise<void> {
       // The in-memory copy is enough for tests; the file is a convenience.
     }
     if (process.env.MAIL_CAPTURE_FAIL === '1') throw new MailError('Capture told to fail (testing).');
-    return;
+    return entry.id;
   }
   if (transport !== 'resend') throw new MailError('Email is not configured.');
 
@@ -59,6 +60,7 @@ export async function sendMail(mail: Mail): Promise<void> {
   try {
     response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
+      signal: AbortSignal.timeout(10000),
       headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'content-type': 'application/json' },
       body: JSON.stringify({
         from: process.env.EMAIL_FROM ?? 'Toolpit <no-reply@toolpit.app>',
@@ -75,4 +77,7 @@ export async function sendMail(mail: Mail): Promise<void> {
     console.error(`[mail] Resend refused a message: ${response.status}`);
     throw new MailError(`The email service refused the message (${response.status}).`);
   }
+  const result = await response.json() as { id?: string };
+  if (typeof result.id !== 'string' || result.id.length > 100) throw new MailError('The email service gave an unexpected response.');
+  return result.id;
 }

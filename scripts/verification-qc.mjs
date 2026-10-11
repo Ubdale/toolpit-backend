@@ -491,5 +491,52 @@ const verifyCode = (handle, code) => call('/api/auth/verify/code', { body: { han
   check('parallel correct codes create one account and one bonus', results.filter(r => r.status === 200).length === 1 && (await users(email)) === 1 && (await bonusOf(email)) === 50);
 }
 
+
+section('signed delivery reports and private registration status');
+{
+  const { Webhook } = await import('svix');
+  const { randomBytes } = await import('node:crypto');
+  process.env.RESEND_WEBHOOK_SECRET = 'whsec_' + randomBytes(32).toString('base64');
+  const signer = new Webhook(process.env.RESEND_WEBHOOK_SECRET);
+  const event = async (mailId, type, eventTime, { bad = false, stale = false } = {}) => {
+    const id = 'msg_' + randomBytes(10).toString('hex');
+    const date = new Date(Date.now() - (stale ? 600000 : 0));
+    const payload = JSON.stringify({ type, created_at: new Date(eventTime).toISOString(), data: { email_id: mailId } });
+    const response = await app.fetch(new Request('https://api.toolpit.test/api/webhooks/resend', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'svix-id': id, 'svix-timestamp': String(Math.floor(date.getTime()/1000)), 'svix-signature': bad ? 'v1,bogus' : signer.sign(id, date, payload) }, body: payload,
+    }));
+    return { status: response.status, body: await response.json() };
+  };
+  const email = 'delivery@toolpit-test.dev';
+  const r = await codeSignup(email); const handle = r.body.pending.handle;
+  const mail = captured.at(-1); const originalId = mail.id;
+  const status = () => call('/api/auth/signup/delivery', { body: { handle } });
+  check('provider acceptance starts with delivery pending', (await status()).body.delivery === 'pending');
+  check('invented handle cannot expose delivery', (await call('/api/auth/signup/delivery', { body: { handle: 'fake' } })).status === 410);
+  check('forged report rejected', (await event(mail.id, 'email.bounced', Date.now(), { bad: true })).status === 401 && (await status()).body.delivery === 'pending');
+  check('stale signed request rejected', (await event(mail.id, 'email.bounced', Date.now(), { stale: true })).status === 401);
+  const time = Date.now();
+  check('valid signed bounce accepted', (await event(mail.id, 'email.bounced', time)).status === 200);
+  check('recipient rejection becomes visible without creating account', (await status()).body.delivery === 'bounced' && (await users(email)) === 0);
+  await event(mail.id, 'email.delivered', time - 1000);
+  await event(mail.id, 'email.delivery_delayed', time + 1000);
+  check('out-of-order events cannot undo a bounce', (await status()).body.delivery === 'bounced');
+  await pg.query("update pending_registrations set last_sent_at = now() - interval '2 minutes' where email_key = $1", [email]);
+  await call('/api/auth/signup/resend', { body: { handle } });
+  check('resend watches only the new message', (await status()).body.delivery === 'pending');
+  await event(originalId, 'email.bounced', time + 2000);
+  check('old message rejection cannot affect a new code', (await status()).body.delivery === 'pending');
+  await event(captured.at(-1).id, 'email.delivered', time + 2000);
+  check('successful delivery becomes visible', (await status()).body.delivery === 'delivered');
+  check('correct inbox code still activates account', (await verifyCode(handle, codeFor(email))).status === 200);
+  check('finished registration exposes no status', (await status()).status === 410);
+  // Webhooks can race the POST /emails response. Save the event before attaching the receipt.
+  await event('mail-before-receipt', 'email.bounced', time);
+  const early = await codeSignup('early-delivery@toolpit-test.dev');
+  await pg.query("update email_verifications set mail_id = 'mail-before-receipt' where email_key = 'early-delivery@toolpit-test.dev' and state = 'active'");
+  check('delivery reports arriving before receipt storage are retained', (await call('/api/auth/signup/delivery', { body: { handle: early.body.pending.handle } })).body.delivery === 'bounced');
+  delete process.env.RESEND_WEBHOOK_SECRET;
+}
+
 console.log(problems === 0 ? '\nverification-qc: all checks passed\n' : `\nverification-qc: ${problems} check(s) failed\n`);
 process.exit(problems === 0 ? 0 : 1);

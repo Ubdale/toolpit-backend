@@ -10,9 +10,9 @@ import isEmail from 'validator/lib/isEmail.js';
  *
  * The syntax check is validator.js's isEmail, a maintained validator, with
  * options matching what the mail provider (Resend) can deliver to. It says
- * nothing about whether a mailbox exists - only the confirmation link proves
- * that. No DNS or SMTP probing: a temporary DNS failure must not turn a real
- * address away, and a probe proves nothing about who owns the inbox.
+ * nothing about whether a mailbox exists. mailbox.ts checks deliverability,
+ * while the inbox code proves ownership. Temporary DNS or verifier failures
+ * stay unknown so a real address is not turned away.
  *
  * Not supported, and said so plainly:
  *   - quoted local parts ("a b"@example.com)

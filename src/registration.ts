@@ -4,6 +4,7 @@ import { AccountError, json, readBody, signedIn } from './account';
 import { webOrigin } from './config';
 import { db, one } from './db';
 import { checkEmail } from './email';
+import { requireReceivableEmail } from './mailbox';
 import { MailError, mailConfigured, sendMail } from './mail';
 import { hashPassword, verifyPassword } from './password';
 import { hashToken } from './session';
@@ -93,7 +94,7 @@ function link(token: string): string {
 
 async function deliver(email: string, token: string, code?: string): Promise<'sent' | 'failed'> {
   try {
-    await sendMail({
+    const mailId = await sendMail({
       to: email,
       subject: 'Confirm your email for Toolpit',
       text: code ? [
@@ -112,6 +113,7 @@ async function deliver(email: string, token: string, code?: string): Promise<'se
         'If this was not you, open the link and choose "This was not me" to cancel it, or ignore this email. No account is created unless the link is confirmed.',
       ].join('\n'),
     });
+    await db().query('update email_verifications set mail_id = $1 where token_hash = $2', [mailId, hashToken(token)]);
     return 'sent';
   } catch (error) {
     if (error instanceof MailError) return 'failed';
@@ -180,6 +182,7 @@ export async function startSignUp(request: Request): Promise<Response> {
   await limit('signup-source', source(request), PER_SOURCE_PER_HOUR, 'Too many sign-ups from this connection. Try again later.');
   await limit('signup-address', email.key, PER_ADDRESS_PER_HOUR, 'Too many confirmation emails for this address. Try again later.');
 
+  await requireReceivableEmail(email.email);
   const handle = secret();
   const token = secret();
   const code = body.verification === 'code' ? String(randomInt(0, 1000000)).padStart(6, '0') : undefined;
@@ -223,6 +226,7 @@ export async function resend(request: Request): Promise<Response> {
   await limit('signup-source', source(request), PER_SOURCE_PER_HOUR, 'Too many emails requested from this connection. Try again later.');
   await limit('signup-address', reg.email.toLowerCase(), PER_ADDRESS_PER_HOUR, 'Too many confirmation emails for this address. Try again later.');
 
+  await requireReceivableEmail(reg.email);
   const token = secret();
   const code = reg.code_mode ? String(randomInt(0, 1000000)).padStart(6, '0') : undefined;
   const issued = await one<{ r: { status: string } }>(code ? 'select reissue_code_verification($1,null,null,$2,$3,$4) as r' : 'select reissue_verification($1, null, null, $2, $3) as r', [

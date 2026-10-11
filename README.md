@@ -72,6 +72,28 @@ The website authenticates with an httpOnly `tp_session` cookie (the API and the
 site share the `toolpit.app` domain, so it is first-party); the app sends
 `Authorization: Bearer <token>`. Browsers may call only from `ALLOWED_ORIGINS`.
 
+## Deliverability checks
+
+Sign-up, resend and email changes check whether the destination domain accepts
+mail (MX or SMTP A/AAAA fallback). Missing domains and Null MX are rejected;
+DNS outages remain unknown. Optional `EMAILABLE_API_KEY` enables mailbox-level
+checks before sending: only an explicit undeliverable result blocks signup.
+Unknown/risky results still require the inbox code.
+
+Configure a Resend webhook at `https://api.toolpit.app/api/webhooks/resend`
+for `email.delivered`, `email.delivery_delayed`, `email.bounced`,
+`email.failed`, and `email.suppressed`. Store its signing secret as
+`RESEND_WEBHOOK_SECRET` on the backend. Svix verifies the raw payload and
+request timestamp before any event is stored. Migration `0004_email_delivery.sql`
+adds receipt tracking. The website polls `POST /api/auth/signup/delivery`
+using its private registration handle and shows delivery failures. Resending
+tracks the new receipt only; a delayed event for an old code cannot change it.
+Only delivery states are stored, not webhook bodies, OTPs or recipient details.
+
+Provider acceptance is not proof a mailbox exists, and a bounce may also mean
+a policy rejection rather than a missing mailbox. The UI asks users to check
+the address without asserting that an inbox definitely does not exist.
+
 ## Email verification
 
 The website requests `verification: "code"`. Resend emails a cryptographically
