@@ -17,6 +17,12 @@ export type AccountSummary = {
   cost: number;
   emailVerified: boolean;
   emailStatus: 'legacy' | 'verified';
+  /** When the account was made (ISO 8601). */
+  createdAt: string;
+  /** false for an account made with Google that has never set a password. */
+  hasPassword: boolean;
+  /** Google sign-in is linked to this account. */
+  google: boolean;
 };
 
 export class AccountError extends Error {
@@ -73,8 +79,11 @@ export async function requireUser(request: Request): Promise<SessionUser> {
 }
 
 export async function summary(userId: string): Promise<AccountSummary> {
-  const row = await one<{ email: string; name: string; balance: string; email_status: 'legacy' | 'verified' }>(
-    'select u.email, u.name, u.email_status, w.balance from users u join wallets w on w.user_id = u.id where u.id = $1',
+  const row = await one<{ email: string; name: string; balance: string; email_status: 'legacy' | 'verified'; created_at: Date | string; has_password: boolean; google: boolean }>(
+    `select u.email, u.name, u.email_status, w.balance, u.created_at,
+            u.password_hash like 'scrypt$%' as has_password,
+            exists (select 1 from user_identities i where i.user_id = u.id and i.provider = 'google') as google
+     from users u join wallets w on w.user_id = u.id where u.id = $1`,
     [userId],
   );
   if (!row) throw new AccountError('This account no longer exists.', 401);
@@ -89,6 +98,9 @@ export async function summary(userId: string): Promise<AccountSummary> {
     // is a usable one, and these two say which kind.
     emailVerified: row.email_status === 'verified',
     emailStatus: row.email_status,
+    createdAt: new Date(row.created_at).toISOString(),
+    hasPassword: row.has_password,
+    google: row.google,
   };
 }
 

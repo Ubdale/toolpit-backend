@@ -29,7 +29,7 @@ export async function createSession(userId: string, userAgent: string | null): P
   return token;
 }
 
-function tokenFrom(request: Request): string | null {
+export function tokenFrom(request: Request): string | null {
   const bearer = request.headers.get('authorization')?.match(/^Bearer\s+(\S+)$/i)?.[1];
   if (bearer) return bearer;
   const cookie = request.headers.get('cookie') ?? '';

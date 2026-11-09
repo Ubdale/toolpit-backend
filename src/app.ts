@@ -16,6 +16,7 @@ import {
 } from './account';
 import { allowedOrigins, webOrigin } from './config';
 import { callback as googleCallback, providers, start as googleStart } from './google';
+import { changePassword, updateProfile } from './profile';
 import { checkout, revenueCatWebhook, sandboxComplete, webPaymentWebhook } from './payment-routes';
 import { cancelLink, changeEmail, confirmCode, confirmLink, inspectLink, resend } from './registration';
 import { completeReset, sendReset } from './reset';
@@ -104,6 +105,9 @@ app.delete('/api/account', (c) =>
     return json({ ok: true }, 200, { 'set-cookie': sessionCookie(null, c.req.raw) });
   }),
 );
+
+app.post('/api/account/profile', (c) => handle(() => updateProfile(c.req.raw)));
+app.post('/api/account/password', (c) => handle(() => changePassword(c.req.raw)));
 
 /** Charge one download. The request carries the session and nothing else. */
 app.post('/api/account/download', (c) =>
