@@ -1,3 +1,4 @@
+import { lemonSqueezyProvider } from './lemonsqueezy';
 import { mockPaymentsAllowed, mockProvider } from './mock';
 import type { PaymentProvider } from './provider';
 
@@ -17,6 +18,8 @@ export * from './provider';
  * The ledger, the webhook route and both apps do not change.
  */
 export function webProvider(): PaymentProvider | null {
+  // Lemon Squeezy, once it is chosen and fully configured (lemonsqueezy.ts).
+  if (process.env.PAYMENT_PROVIDER === 'lemonsqueezy' && lemonSqueezyProvider.isConfigured()) return lemonSqueezyProvider;
   if (mockPaymentsAllowed()) return mockProvider;
   return null;
 }

@@ -65,7 +65,7 @@ scripts/             migrate + tests
 | POST | `/api/account/download` | charges 10 tokens; 402 if not enough |
 | GET | `/api/packs` | the four token packs |
 | POST | `/api/webhooks/revenuecat` | Play / App Store purchases and refunds |
-| POST | `/api/checkout`, `/api/webhooks/payments` | website purchases (off until a provider is chosen) |
+| POST | `/api/checkout`, `/api/webhooks/payments` | website purchases through Lemon Squeezy (closed until it is configured) |
 | GET | `/health` | `{ok: true}` |
 
 The website authenticates with an httpOnly `tp_session` cookie (the API and the
@@ -200,3 +200,5 @@ Vercel detects Hono and serves `src/index.ts`.
 | `MAIL_TRANSPORT`, `MAIL_CAPTURE_DIR` | development only: `capture` writes emails to disk instead of sending |
 | `REVENUECAT_WEBHOOK_SECRET` | shared secret RevenueCat sends. **Secret.** |
 | `REVENUECAT_ACCEPT_SANDBOX` | `true` while testing store purchases, `false` at launch |
+| `PAYMENT_PROVIDER`, `LEMONSQUEEZY_*` | website checkout: API key, store id, webhook signing secret, one variant id per pack. **Secrets.** See `src/payments/lemonsqueezy.ts` |
+| `PAYMENTS_ACCEPT_TEST_MODE` | `true` only while testing with a test-mode Lemon Squeezy key |

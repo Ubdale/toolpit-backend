@@ -47,6 +47,8 @@ export type CheckoutRequest = {
   /** Our user, so the webhook can find the wallet again. */
   walletId: string;
   userId: string;
+  /** Pre-fills the provider's checkout. Optional; never used to identify the payer. */
+  email?: string;
   /** Where to send the customer afterwards. */
   successUrl: string;
   cancelUrl: string;

@@ -46,6 +46,7 @@ export async function checkout(request: Request): Promise<Response> {
     },
     walletId,
     userId: user.id,
+    email: user.email,
     successUrl: `${site}/account?bought=${encodeURIComponent(pack.id)}`,
     cancelUrl: `${site}/account`,
   });
@@ -91,7 +92,12 @@ export async function webPaymentWebhook(request: Request): Promise<Response> {
     throw error;
   }
   try {
-    return json({ ok: true, ...(await fulfil(event, provider.name, postgresLedger)) });
+    // Test-mode orders (no money moved) only count while testing on purpose.
+    const outcome = await fulfil(event, provider.name, postgresLedger, {
+      acceptSandbox: process.env.PAYMENTS_ACCEPT_TEST_MODE === 'true',
+    });
+    if (!outcome.handled) console.info(`[${provider.name}] acknowledged without effect: ${outcome.reason}`);
+    return json({ ok: true, ...outcome });
   } catch (error) {
     console.error(`[${provider.name}] could not apply event`, error);
     return json({ error: 'temporarily unavailable' }, 500);

@@ -14,14 +14,15 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "db:migrate": "node --env-file=.env scripts/db-migrate.mjs",
-    "test": "npm run test:ledger && npm run test:payments && npm run test:auth && npm run test:verification && npm run test:mailbox",
+    "test": "npm run test:ledger && npm run test:payments && npm run test:auth && npm run test:verification && npm run test:mailbox && npm run test:lemonsqueezy",
     "test:ledger": "node scripts/tokens-qc.mjs",
     "test:payments": "tsx scripts/payments-qc.mjs",
     "test:auth": "tsx scripts/auth-qc.mjs",
     "test:api": "tsx --env-file=.env scripts/api-e2e.mjs",
     "test:verification": "tsx scripts/verification-qc.mjs",
     "dev:local": "tsx scripts/dev-local.mjs",
-    "test:mailbox": "tsx scripts/mailbox-qc.mjs"
+    "test:mailbox": "tsx scripts/mailbox-qc.mjs",
+    "test:lemonsqueezy": "tsx scripts/lemonsqueezy-qc.mjs"
   },
   "dependencies": {
     "@hono/node-server": "1.19.17",
