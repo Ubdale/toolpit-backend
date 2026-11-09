@@ -14,7 +14,7 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "db:migrate": "node --env-file=.env scripts/db-migrate.mjs",
-    "test": "npm run test:ledger && npm run test:payments && npm run test:auth && npm run test:verification && npm run test:mailbox && npm run test:lemonsqueezy",
+    "test": "npm run test:ledger && npm run test:payments && npm run test:auth && npm run test:verification && npm run test:mailbox && npm run test:lemonsqueezy && npm run test:google",
     "test:ledger": "node scripts/tokens-qc.mjs",
     "test:payments": "tsx scripts/payments-qc.mjs",
     "test:auth": "tsx scripts/auth-qc.mjs",
@@ -22,7 +22,8 @@
     "test:verification": "tsx scripts/verification-qc.mjs",
     "dev:local": "tsx scripts/dev-local.mjs",
     "test:mailbox": "tsx scripts/mailbox-qc.mjs",
-    "test:lemonsqueezy": "tsx scripts/lemonsqueezy-qc.mjs"
+    "test:lemonsqueezy": "tsx scripts/lemonsqueezy-qc.mjs",
+    "test:google": "tsx scripts/google-qc.mjs"
   },
   "dependencies": {
     "@hono/node-server": "1.19.17",

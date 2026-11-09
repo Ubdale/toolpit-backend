@@ -15,6 +15,7 @@ import {
   summary,
 } from './account';
 import { allowedOrigins, webOrigin } from './config';
+import { callback as googleCallback, providers, start as googleStart } from './google';
 import { checkout, revenueCatWebhook, sandboxComplete, webPaymentWebhook } from './payment-routes';
 import { cancelLink, changeEmail, confirmCode, confirmLink, inspectLink, resend } from './registration';
 import { completeReset, sendReset } from './reset';
@@ -58,6 +59,9 @@ app.post('/api/auth/verify/code', (c) => handle(() => confirmCode(c.req.raw)));
 app.post('/api/auth/verify/inspect', (c) => handle(() => inspectLink(c.req.raw)));
 app.post('/api/auth/verify', (c) => handle(() => confirmLink(c.req.raw)));
 app.post('/api/auth/verify/cancel', (c) => handle(() => cancelLink(c.req.raw)));
+app.get('/api/auth/providers', () => providers());
+app.get('/api/auth/google/start', (c) => handle(() => googleStart(c.req.raw)));
+app.get('/api/auth/google/callback', (c) => handle(() => googleCallback(c.req.raw)));
 app.post('/api/auth/login', (c) => handle(() => signIn(c.req.raw)));
 
 app.post('/api/auth/logout', (c) =>

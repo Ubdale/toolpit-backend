@@ -38,6 +38,10 @@ services:
         sync: false
       - key: PAYMENTS_ACCEPT_TEST_MODE
         value: "false"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
       - key: REVENUECAT_ACCEPT_SANDBOX
         value: "true"
       - key: RESEND_API_KEY

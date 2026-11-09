@@ -57,6 +57,8 @@ scripts/             migrate + tests
 | POST | `/api/auth/verify` | `{token, password}` → verified account, 50 tokens (once per inbox), signed in |
 | POST | `/api/auth/verify/cancel` | `{token}` → "this was not me": ends the sign-up |
 | POST | `/api/auth/login` | `{email, password}` → `{token, account}` + cookie |
+| GET | `/api/auth/providers` | `{google}`: which outside sign-ins are switched on |
+| GET | `/api/auth/google/start`, `/api/auth/google/callback` | "Continue with Google" (redirects; cookie set on return) |
 | POST | `/api/auth/logout` | ends the session |
 | POST | `/api/auth/forgot` | `{email}` → reset link by email (needs `RESEND_API_KEY`) |
 | POST | `/api/auth/reset` | `{token, password}` → new password, signed in |
@@ -202,3 +204,5 @@ Vercel detects Hono and serves `src/index.ts`.
 | `REVENUECAT_ACCEPT_SANDBOX` | `true` while testing store purchases, `false` at launch |
 | `PAYMENT_PROVIDER`, `LEMONSQUEEZY_*` | website checkout: API key, store id, webhook signing secret, one variant id per pack. **Secrets.** See `src/payments/lemonsqueezy.ts` |
 | `PAYMENTS_ACCEPT_TEST_MODE` | `true` only while testing with a test-mode Lemon Squeezy key |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | "Continue with Google" (a Web OAuth client). **Secret.** Redirect URI: `API_ORIGIN/api/auth/google/callback` |
+| `API_ORIGIN` | this API's public origin, default `https://api.toolpit.app` |

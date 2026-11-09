@@ -16,3 +16,8 @@ export function allowedOrigins(): string[] {
     ? configured
     : ['https://toolpit.app', 'https://www.toolpit.app', 'http://localhost:3000'];
 }
+
+/** Where this API itself is reached from outside (for OAuth redirect URIs). */
+export function apiOrigin(): string {
+  return (process.env.API_ORIGIN ?? 'https://api.toolpit.app').replace(/\/$/, '');
+}
